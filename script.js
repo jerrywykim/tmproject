@@ -1,15 +1,31 @@
 const robotId = document.querySelector('.id');
 const names = document.querySelectorAll('.name');
+const dropButtons = document.querySelectorAll('.dropbtn');
+const commands = document.querySelectorAll('.command');
+const commandDatas = document.querySelectorAll('.command-data');
 const progresses = document.querySelectorAll('.progress > div');
 const icon = document.querySelector('.icon');
 const video = document.querySelector('.webcam');
 
 const URL = './model/';
+const maxIndex = [];
 
 let model, webcam, maxPredictions;
+let request = null;
 
 if (!localStorage.getItem('robotId')) {
-  localStorage.setItem('robotId', '0');
+  localStorage.setItem('robotId', '0000');
+}
+
+if (!localStorage.getItem('commands')) {
+  localStorage.setItem(
+    'commands',
+    JSON.stringify(['Command', 'Command', 'Command', 'Command', 'Command'])
+  );
+}
+
+if (!localStorage.getItem('command-data')) {
+  localStorage.setItem('command-data', JSON.stringify(['0', '0', '0', '0', '0']));
 }
 
 if (!JSON.parse(localStorage.getItem('classNames'))) {
@@ -22,6 +38,12 @@ if (!JSON.parse(localStorage.getItem('classNames'))) {
 robotId.value = localStorage.getItem('robotId');
 
 const classNames = JSON.parse(localStorage.getItem('classNames'));
+const commandGroup = JSON.parse(localStorage.getItem('commands'));
+const commandGroupData = JSON.parse(localStorage.getItem('command-data'));
+
+dropButtons.forEach((button, index) => {
+  button.innerHTML = commandGroup[index];
+});
 
 names.forEach((name, index) => {
   name.value = classNames[index];
@@ -64,6 +86,14 @@ const predict = async () => {
       }
     });
   }
+
+  progresses.forEach((progress, index) => {
+    if (isNaN(parseInt(progress.style.width.replace('%', '')))) {
+      maxIndex[index] = 0;
+    } else {
+      maxIndex[index] = parseInt(progress.style.width.replace('%', ''));
+    }
+  });
 };
 
 const loop = async () => {
@@ -79,23 +109,73 @@ robotId.addEventListener('change', (e) => {
   localStorage.setItem('robotId', e.target.value);
 });
 
+commands.forEach((command, index) => {
+  command.addEventListener('click', (e) => {
+    const groupNumber = parseInt(index / 5);
+
+    dropButtons[groupNumber].innerHTML = command.innerHTML;
+
+    commandGroup[groupNumber] = command.innerHTML;
+
+    localStorage.setItem('commands', JSON.stringify(commandGroup));
+  });
+});
+
+commandDatas.forEach((data, index) => {
+  data.value = commandGroupData[index];
+
+  data.addEventListener('change', (e) => {
+    commandGroupData[index] = e.target.value;
+
+    localStorage.setItem('command-data', JSON.stringify(commandGroupData));
+  });
+});
+
 icon.addEventListener('click', async (e) => {
   icon.classList.toggle('on');
 
   if (icon.classList.contains('on')) {
     await axios.post('http://sblabs.iptime.org:3318/api/hu18', {
-      id: parseInt(robotId.value),
-      motion: 6,
+      id: robotId.value,
+      command: 'motion',
+      data: 241,
     });
 
     await webcam.play();
     window.requestAnimationFrame(loop);
+
+    request = setInterval(() => {
+      const index = maxIndex.indexOf(Math.max(...maxIndex));
+
+      if (index > 0) {
+        axios.post('http://sblabs.iptime.org:3318/api/hu18', {
+          id: robotId.value,
+          command: commandGroup[index - 1].toLowerCase(),
+          data: parseInt(commandGroupData[index - 1]),
+        });
+      }
+    }, 100);
   } else {
+    clearInterval(request);
+
     await axios.post('http://sblabs.iptime.org:3318/api/hu18', {
-      id: parseInt(robotId.value),
-      motion: 5,
+      id: robotId.value,
+      command: 'motion',
+      data: 240,
     });
 
     await webcam.pause();
   }
+});
+
+window.addEventListener('beforeunload', () => {
+  clearInterval(request);
+
+  axios.post('http://sblabs.iptime.org:3318/api/hu18', {
+    id: robotId.value,
+    command: 'motion',
+    data: 240,
+  });
+
+  webcam.pause();
 });
